@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 ACTIVATION_INTENSITY = 1  # How steep is the activation curve's step
 STRING_COLUMN_SPACING = 2
 
+GRADIENT_DESCENT_FACTOR = 0.1
+
 
 class NN:
     input_size: int
@@ -20,7 +22,6 @@ class NN:
 
     @staticmethod
     def get_starting_value():
-        return 0
         return round(random() * 2 - 1, 2)
 
     def __init__(self, layer_sizes: Iterator[int]):
@@ -37,46 +38,135 @@ class NN:
             for layer_size in layer_sizes[1:]
         ]
 
+    def backpropagate(
+        self,
+        prev_layer_index: int,
+        prev_layer_values: list[float,],
+        layer_values: list[float],
+        layer_values_partial_derivative_to_cost: list[float],
+    ):
+        """
+        Terminology:
+        layer -> current layer
+        prev_layer -> the layer we want to backpropegate to
+        """
+        # print(
+        #     prev_layer_index,
+        #     prev_layer_values,
+        #     layer_values,
+        #     layer_values_partial_derivative_to_cost,
+        # )
+        prev_layer_values_partial_derivative_to_cost = []
+        for j in range(len(prev_layer_values)):
+            prev_layer_value_partial_derivative_to_cost = 0
+            for i in range(len(layer_values)):
+                prev_layer_value_partial_derivative_to_cost += (
+                    layer_values_partial_derivative_to_cost[i]
+                    * NN.activation_derivative(layer_values[i])
+                    * self.weights[prev_layer_index][i][j]
+                )
+            prev_layer_values_partial_derivative_to_cost.append(
+                prev_layer_value_partial_derivative_to_cost
+            )
+        layer_nodes_weights_partial_derivative_to_cost = []
+        layer_node_biases_partial_derivative_to_cost = []
+        for i in range(len(layer_values)):
+            layer_node_bias_partial_derivative_to_cost = 0
+            for j in range(len(prev_layer_values)):
+                layer_node_bias_partial_derivative_to_cost += (
+                    layer_values_partial_derivative_to_cost[i]
+                    * NN.activation_derivative(layer_values[i])
+                    * 1
+                )
+            layer_node_biases_partial_derivative_to_cost.append(
+                layer_node_bias_partial_derivative_to_cost
+            )
+        for i in range(len(layer_values)):
+            layer_node_weights_partial_derivative_to_cost = []
+            for j in range(len(prev_layer_values)):
+                layer_node_weights_partial_derivative_to_cost.append(
+                    layer_values_partial_derivative_to_cost[i]
+                    * NN.activation_derivative(layer_values[i])
+                    * prev_layer_values[j]
+                )
+            layer_nodes_weights_partial_derivative_to_cost.append(
+                layer_node_weights_partial_derivative_to_cost
+            )
+        return (
+            prev_layer_values_partial_derivative_to_cost,
+            layer_node_biases_partial_derivative_to_cost,
+            layer_nodes_weights_partial_derivative_to_cost,
+        )
+
     def train(self, training_data: Iterator[tuple[tuple[float, ...], float]]):
-        plot_data = []
-        plot_data2 = []
-
-        for j, (input_arr, expected_output) in enumerate(training_data):
-            # print("Training data: ", input_arr, expected_output)
+        # plot_data = []
+        # plot_data2 = []
+        for _training_index, (input_arr, expected_output) in enumerate(training_data):
+            # print(f"Training data: {input_arr}. expecting result of {expected_output}")
             node_values = self.get_node_values(input_arr)
-            # print(f"{NN.stringify_2d_arr(node_values)}\n")
+            # print(NN.stringify_2d_arr(node_values))
 
-            for i, _ in enumerate(node_values[-2]):
-                weight_partial_derivative = (
-                    node_values[-2][i]
-                    * NN.activation_derivative(
-                        node_values[-2][i] * self.weights[-1][0][i] + self.biases[-1][0]
+            output_layer_values_partial_derivative_to_cost = [
+                NN.loss_derivative(node_values[-1][i], expected_output[i])
+                for i in range(len(node_values[-1]))
+            ]
+
+            layer_values_partial_derivative_to_cost = (
+                output_layer_values_partial_derivative_to_cost
+            )
+            # Iterate though all layers backwards without the input layer
+            for layer_index in range(len(node_values) - 1, 0, -1):
+                (
+                    prev_layer_values_partial_derivative_to_cost,
+                    layer_node_biases_partial_derivative_to_cost,
+                    layer_nodes_weights_partial_derivative_to_cost,
+                ) = self.backpropegate(
+                    layer_index - 1,
+                    node_values[layer_index - 1],
+                    node_values[layer_index],
+                    layer_values_partial_derivative_to_cost,
+                )
+                for (
+                    node_index,
+                    layer_node_weights_partial_derivative_to_cost,
+                ) in enumerate(layer_nodes_weights_partial_derivative_to_cost):
+                    for (
+                        weight_index,
+                        layer_node_weight_partial_derivative_to_cost,
+                    ) in enumerate(layer_node_weights_partial_derivative_to_cost):
+                        self.weights[layer_index - 1][node_index][weight_index] += (
+                            layer_node_weight_partial_derivative_to_cost
+                            * -GRADIENT_DESCENT_FACTOR
+                        )
+                for (
+                    node_index,
+                    layer_node_bias_partial_derivative_to_cost,
+                ) in enumerate(layer_node_biases_partial_derivative_to_cost):
+                    self.biases[layer_index - 1][node_index] += (
+                        layer_node_bias_partial_derivative_to_cost
+                        * -GRADIENT_DESCENT_FACTOR
                     )
-                    * 2
-                    * (node_values[-1][0] - expected_output)
+
+                layer_values_partial_derivative_to_cost = (
+                    prev_layer_values_partial_derivative_to_cost
                 )
 
-                # print(f"{weight_partial_derivative=}")
-                if i == 0:
-                    plot_data.append(
-                        (
-                            j,
-                            self.weights[-1][0][i],
-                            NN.loss_function(node_values[-1][0], expected_output),
-                        )
-                    )
-                    plot_data2.append(
-                        (
-                            j,
-                            -weight_partial_derivative / 1,
-                            NN.loss_function(node_values[-1][0], expected_output),
-                        )
-                    )
-
-                    print(
-                        node_values[-2][i],
-                    )
-                self.weights[-1][0][i] += -weight_partial_derivative / 1
+            # print(f"{weight_partial_derivative=}")
+            # if i == 0:
+            #     plot_data.append(
+            #         (
+            #             j,
+            #             self.weights[-1][0][i],
+            #             NN.loss_function(node_values[-1][0], expected_output),
+            #         )
+            #     )
+            #     plot_data2.append(
+            #         (
+            #             j,
+            #             -weight_partial_derivative / 1,
+            #             NN.loss_function(node_values[-1][0], expected_output),
+            #         )
+            #     )
 
         print(f"{self}\n")
         print(
@@ -84,21 +174,21 @@ class NN:
         )
         node_values = self.get_node_values(input_arr)
         print(f"{NN.stringify_2d_arr(node_values)}\n")
-        fig = plt.figure()
-        ax = plt.axes(projection="3d")
-        plt.plot(*zip(*plot_data), marker="o")
-        plt.plot(*zip(*plot_data2), marker="o")
-        plt.plot(*zip(*plot_data2), marker="o")
+        # fig = plt.figure()
+        # ax = plt.axes(projection="3d")
+        # plt.plot(*zip(*plot_data), marker="o")
+        # plt.plot(*zip(*plot_data2), marker="o")
+        # plt.plot(*zip(*plot_data2), marker="o")
 
-        ax.set_xlabel("iteration")
-        ax.set_ylabel("weight")
-        ax.set_zlabel("loss")
+        # ax.set_xlabel("iteration")
+        # ax.set_ylabel("weight")
+        # ax.set_zlabel("loss")
 
-        # giving a title to my graph
-        plt.title("My first graph!")
-        plt.grid()
-        # function to show the plot
-        plt.show()
+        # # giving a title to my graph
+        # plt.title("My first graph!")
+        # plt.grid()
+        # # function to show the plot
+        # plt.show()
 
     def get_node_values(self, input_arr: tuple[float, ...]):
         node_values = [[0.0] * len(layer) for layer in [list(input_arr)] + self.biases]
